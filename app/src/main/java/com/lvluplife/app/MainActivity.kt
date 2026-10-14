@@ -138,6 +138,10 @@ private fun AccountScreen(
     onCreate: (String) -> Unit,
     onSignOut: () -> Unit,
 ) {
+    if (state is ScreenState.Ready) {
+        ActivityHub(state.account, padding, onSignOut)
+        return
+    }
     var username by androidx.compose.runtime.remember(state) { mutableStateOf("") }
     Column(
         modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
@@ -169,14 +173,7 @@ private fun AccountScreen(
                 Text("No se pudo cargar tu cuenta. Reabrí la aplicación para intentar otra vez.")
                 Button(onClick = onSignOut) { Text("Cerrar sesión") }
             }
-            is ScreenState.Ready -> {
-                Text("Hola, ${state.account.username}", style = MaterialTheme.typography.headlineMedium)
-                Text("${state.account.character.characterClass} · Nivel ${state.account.character.generalLevel}")
-                state.account.character.attributes.forEach { (name, attribute) ->
-                    Text("$name · Nivel ${attribute.level} · ${attribute.xp} XP")
-                }
-                Button(onClick = onSignOut) { Text("Cerrar sesión") }
-            }
+            is ScreenState.Ready -> Unit
         }
         if (busy) CircularProgressIndicator()
         if (error != null) Text(error, color = MaterialTheme.colorScheme.error)

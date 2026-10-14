@@ -37,6 +37,146 @@ service cloud.firestore {
         && initialCharacter(request.resource.data.character)
         && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.usernameKey)).data.uid == uid;
       allow update, delete: if false;
+
+      match /customActivities/{activityId} {
+        allow get, list: if owner(uid);
+        allow create: if owner(uid)
+          && request.resource.data.keys().hasAll(['name', 'category', 'kind', 'primary', 'secondary', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['name', 'category', 'kind', 'primary', 'secondary', 'createdAt'])
+          && request.resource.data.name is string && request.resource.data.name.size() >= 1
+          && request.resource.data.name.size() <= 50 && request.resource.data.name == request.resource.data.name.trim()
+          && request.resource.data.category is string && request.resource.data.category.trim().size() > 0
+          && request.resource.data.category == request.resource.data.category.trim()
+          && request.resource.data.kind == 'duration'
+          && request.resource.data.primary in ['STR', 'DEX', 'INT', 'WIT', 'MEN']
+          && (request.resource.data.secondary == null ||
+            (request.resource.data.secondary in ['STR', 'DEX', 'INT', 'WIT', 'MEN']
+              && request.resource.data.secondary != request.resource.data.primary))
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+
+      match /clock/{clockId} {
+        allow get: if owner(uid) && clockId == 'server';
+        allow list: if false;
+        allow create, update: if owner(uid) && clockId == 'server'
+          && request.resource.data.keys().hasOnly(['now'])
+          && request.resource.data.keys().hasAll(['now'])
+          && request.resource.data.now == request.time;
+        allow delete: if false;
+      }
+
+      match /days/{dayId} {
+        function currentCycle() {
+          return get(/databases/$(database)/documents/accounts/$(uid)).data.get('currentCycleId', 'initial');
+        }
+        function docPath(id) {
+          return /databases/$(database)/documents/accounts/$(uid)/days/$(id);
+        }
+        function allowedDay(day) {
+          let today = (request.time - duration.value(3, 'h')).date();
+          return day == today || day == today - duration.value(1, 'd')
+            || day == today - duration.value(2, 'd');
+        }
+        function validHeader(d) {
+          return d.keys().hasAll(['cycleId', 'day', 'entries', 'totalMinutes', 'changedId', 'movePeer'])
+            && d.keys().hasOnly(['cycleId', 'day', 'entries', 'totalMinutes', 'changedId', 'movePeer'])
+            && d.cycleId == currentCycle()
+            && d.day is timestamp && d.day == d.day.date()
+            && dayId == d.cycleId + '_' + string(d.day.toMillis())
+            && d.entries is map && d.totalMinutes is int
+            && d.totalMinutes >= 0 && d.totalMinutes <= 1440
+            && d.changedId is string && d.changedId.matches('^[A-Za-z0-9]{20}$')
+            && (d.movePeer == null || d.movePeer is string);
+        }
+        function recent(e) {
+          return e.createdAt is timestamp && request.time >= e.createdAt
+            && request.time < e.createdAt + duration.value(5, 'm');
+        }
+        function basic(e) {
+          return (e.catalogId == 'STRENGTH' && e.name == 'Entrenamiento de fuerza' && e.category == 'Actividad física' && e.kind == 'duration' && e.primary == 'STR' && e.secondary == null)
+            || (e.catalogId == 'AEROBIC' && e.name == 'Actividad aeróbica' && e.category == 'Actividad física' && e.kind == 'duration' && e.primary == 'DEX' && e.secondary == null)
+            || (e.catalogId == 'MEAL' && e.name == 'Comida saludable' && e.category == 'Nutrición' && e.kind == 'meal' && e.primary == 'CON' && e.secondary == null)
+            || (e.catalogId == 'READ' && e.name == 'Leer / estudiar' && e.category == 'Aprendizaje' && e.kind == 'duration' && e.primary == 'INT' && e.secondary == null)
+            || (e.catalogId == 'HOBBY' && e.name == 'Ocio / hobby' && e.category == 'Bienestar' && e.kind == 'duration' && e.primary == 'WIT' && e.secondary == null)
+            || (e.catalogId == 'SLEEP' && e.name == 'Dormir' && e.category == 'Descanso' && e.kind == 'duration' && e.primary == 'MEN' && e.secondary == null)
+            || (e.catalogId == 'CROSSFIT' && e.name == 'CrossFit' && e.category == 'Actividad física' && e.kind == 'duration' && e.primary == 'STR' && e.secondary == 'DEX')
+            || (e.catalogId == 'MARTIAL_ARTS' && e.name == 'Artes marciales' && e.category == 'Actividad física' && e.kind == 'duration' && e.primary == 'DEX' && e.secondary == 'STR')
+            || (e.catalogId == 'YOGA' && e.name == 'Yoga' && e.category == 'Bienestar físico' && e.kind == 'duration' && e.primary == 'WIT' && e.secondary == 'DEX')
+            || (e.catalogId == 'PRACTICAL_SKILL' && e.name == 'Aprender una habilidad práctica' && e.category == 'Aprendizaje' && e.kind == 'duration' && e.primary == 'INT' && e.secondary == 'DEX')
+            || (e.catalogId == 'STRATEGY' && e.name == 'Juegos de estrategia' && e.category == 'Ocio / aprendizaje' && e.kind == 'duration' && e.primary == 'WIT' && e.secondary == 'INT');
+        }
+        function custom(e) {
+          let activity = get(/databases/$(database)/documents/accounts/$(uid)/customActivities/$(e.customId)).data;
+          return e.customId is string && e.customId.matches('^[A-Za-z0-9]{20}$')
+            && activity.name == e.name && activity.category == e.category
+            && activity.primary == e.primary && activity.secondary == e.secondary
+            && e.kind == 'duration';
+        }
+        function validEntry(e) {
+          return e is map
+            && e.keys().hasAll(['name', 'category', 'kind', 'catalogId', 'customId', 'primary', 'secondary', 'minutes', 'createdAt'])
+            && e.keys().hasOnly(['name', 'category', 'kind', 'catalogId', 'customId', 'primary', 'secondary', 'minutes', 'createdAt'])
+            && e.minutes is int && e.minutes >= 0 && e.minutes <= 1440
+            && e.createdAt is timestamp
+            && ((e.customId == null && basic(e)) || (e.catalogId == null && custom(e)))
+            && ((e.kind == 'meal' && e.minutes == 0) || (e.kind == 'duration' && e.minutes > 0));
+        }
+        function movedIn(d, e) {
+          let peer = docPath(d.movePeer);
+          return d.movePeer is string && d.movePeer != dayId && exists(peer)
+            && get(peer).data.cycleId == d.cycleId
+            && d.changedId in get(peer).data.entries
+            && !(d.changedId in getAfter(peer).data.entries)
+            && getAfter(peer).data.movePeer == dayId
+            && recent(get(peer).data.entries[d.changedId])
+            && get(peer).data.entries[d.changedId].createdAt == e.createdAt
+            && get(peer).data.entries[d.changedId].kind == e.kind
+            && (e.kind != 'meal' || e == get(peer).data.entries[d.changedId]);
+        }
+        function movedOut(d, e) {
+          let peer = docPath(d.movePeer);
+          return d.movePeer is string && d.movePeer != dayId
+            && (!exists(peer) || !(d.changedId in get(peer).data.entries))
+            && d.changedId in getAfter(peer).data.entries
+            && getAfter(peer).data.movePeer == dayId
+            && getAfter(peer).data.entries[d.changedId].createdAt == e.createdAt
+            && getAfter(peer).data.entries[d.changedId].kind == e.kind
+            && (e.kind != 'meal' || getAfter(peer).data.entries[d.changedId] == e);
+        }
+        function validCreate(d) {
+          let e = d.entries[d.changedId];
+          return validHeader(d) && allowedDay(d.day)
+            && d.entries.size() == 1 && d.changedId in d.entries
+            && validEntry(e) && d.totalMinutes == e.minutes
+            && ((d.movePeer == null && e.createdAt == request.time)
+              || (d.movePeer != null && movedIn(d, e)));
+        }
+        function validUpdate(d) {
+          let id = d.changedId;
+          let old = resource.data.entries.get(id, null);
+          let next = d.entries.get(id, null);
+          return validHeader(d) && d.day == resource.data.day && d.cycleId == resource.data.cycleId
+            && d.diff(resource.data).affectedKeys().hasOnly(['entries', 'totalMinutes', 'changedId', 'movePeer'])
+            && d.entries.diff(resource.data.entries).affectedKeys().size() == 1
+            && d.entries.diff(resource.data.entries).affectedKeys().hasOnly([id])
+            && ((old == null && next != null && allowedDay(d.day) && validEntry(next)
+                && d.totalMinutes == resource.data.totalMinutes + next.minutes
+                && ((d.movePeer == null && next.createdAt == request.time)
+                  || (d.movePeer != null && movedIn(d, next))))
+              || (old != null && next != null && d.movePeer == null && allowedDay(d.day)
+                && recent(old) && next.createdAt == old.createdAt && next.kind == old.kind
+                && next.kind == 'duration' && validEntry(next)
+                && d.totalMinutes == resource.data.totalMinutes - old.minutes + next.minutes)
+              || (old != null && next == null && recent(old)
+                && d.totalMinutes == resource.data.totalMinutes - old.minutes
+                && (d.movePeer == null || movedOut(d, old))));
+        }
+        allow get, list: if owner(uid);
+        allow create: if owner(uid) && validCreate(request.resource.data);
+        allow update: if owner(uid) && validUpdate(request.resource.data);
+        allow delete: if false;
+      }
     }
 
     match /usernames/{key} {
