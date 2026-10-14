@@ -1,0 +1,34 @@
+{
+  "project_info": {
+    "project_number": "808202421039",
+    "project_id": "liveluplife",
+    "storage_bucket": "liveluplife.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:808202421039:android:7ee418e35b61f6e08c17da",
+        "android_client_info": {
+          "package_name": "com.lvlup.life"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "808202421039-i3ppk2abu96g1mtkqrd8g7jtakhn2uee.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBuNb5gnojpg7C_3gM0bkf9q3FRS-Mvv20"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
