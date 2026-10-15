@@ -3,6 +3,7 @@ package com.lvluplife.app
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.FieldValue
 import java.util.Locale
 
 data class Account(val username: String, val character: Character)
@@ -60,7 +61,8 @@ class AccountRepository(
 
         db.batch()
             .set(nameRef, mapOf("uid" to uid))
-            .set(accountRef, mapOf("username" to username, "usernameKey" to key, "character" to character))
+            .set(accountRef, mapOf("username" to username, "usernameKey" to key, "character" to character,
+                "currentCycleId" to "initial", "cycleStartedAt" to FieldValue.serverTimestamp()))
             .commit()
             .addOnSuccessListener {
                 onResult(Result.success(Account(username, Character(1, "Novato", initialAttributes.mapValues { Attribute(1, 0) }))))

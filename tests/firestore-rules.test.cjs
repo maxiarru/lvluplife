@@ -12,6 +12,8 @@ const initialAccount = (username) => ({
   username,
   usernameKey: username.toLowerCase(),
   character: { generalLevel: 1, class: 'Novato', attributes: initialAttributes },
+  currentCycleId: 'initial',
+  cycleStartedAt: serverTimestamp(),
 });
 
 (async () => {
@@ -41,6 +43,8 @@ const initialAccount = (username) => ({
     await assertFails(duplicateName.commit());
     await assertFails(setDoc(account(bob, 'bob'), initialAccount('Bob')));
     await assertFails(setDoc(account(alice, 'alice'), { ...initialAccount('Martin'), character: { generalLevel: 50 } }));
+    await assertFails(setDoc(account(bob, 'alice'), {currentCycleId: 'aaaaaaaaaaaaaaaaaaaa'}, {merge: true}));
+    await assertFails(setDoc(account(alice, 'alice'), {character: {generalLevel: 50}}, {merge: true}));
     await assertFails(setDoc(name(bob, 'bob'), { uid: 'bob' }));
 
     const createBob = writeBatch(bob);
@@ -109,6 +113,38 @@ const initialAccount = (username) => ({
       totalMinutes: 1440, changedId: fullId}));
     await assertSucceeds(setDoc(dayRef, {...dayDoc, entries: {}, totalMinutes: 0,
       changedId: fullId, movePeer: null}));
+    const firstHourId = 'gggggggggggggggggggg';
+    const remainingDayId = 'hhhhhhhhhhhhhhhhhhhh';
+    await assertSucceeds(setDoc(dayRef, {...dayDoc, entries: {
+      [firstHourId]: {...entry, minutes: 60, createdAt: serverTimestamp()},
+    }, totalMinutes: 60, changedId: firstHourId, movePeer: null}));
+    const firstHourSaved = (await getDoc(dayRef)).data().entries[firstHourId];
+    await assertSucceeds(setDoc(dayRef, {...dayDoc, entries: {
+      [firstHourId]: firstHourSaved,
+      [remainingDayId]: {...entry, minutes: 1380, createdAt: serverTimestamp()},
+    }, totalMinutes: 1440, changedId: remainingDayId, movePeer: null}));
+    await assertSucceeds(setDoc(dayRef, {...dayDoc, entries: {
+      [firstHourId]: firstHourSaved,
+    }, totalMinutes: 60, changedId: remainingDayId, movePeer: null}));
+    await assertSucceeds(setDoc(dayRef, {...dayDoc, entries: {}, totalMinutes: 0,
+      changedId: firstHourId, movePeer: null}));
+    await assertSucceeds(setDoc(dayRef, {...dayDoc, entries: {
+      [firstHourId]: {...entry, minutes: 60, createdAt: serverTimestamp()},
+    }, totalMinutes: 60, changedId: firstHourId, movePeer: null}));
+    const savedMixedHour = (await getDoc(dayRef)).data().entries[firstHourId];
+    await assertSucceeds(setDoc(dayRef, {...dayDoc, entries: {
+      [firstHourId]: savedMixedHour,
+      [remainingDayId]: {
+        name: 'Correr', category: 'Deporte', kind: 'duration', catalogId: null,
+        customId: 'abcdefghijklmnopqrst', primary: 'DEX', secondary: null,
+        minutes: 1380, createdAt: serverTimestamp(),
+      },
+    }, totalMinutes: 1440, changedId: remainingDayId, movePeer: null}));
+    await assertSucceeds(setDoc(dayRef, {...dayDoc, entries: {
+      [firstHourId]: savedMixedHour,
+    }, totalMinutes: 60, changedId: remainingDayId, movePeer: null}));
+    await assertSucceeds(setDoc(dayRef, {...dayDoc, entries: {}, totalMinutes: 0,
+      changedId: firstHourId, movePeer: null}));
     const afterDeleteId = 'eeeeeeeeeeeeeeeeeeee';
     await assertSucceeds(setDoc(dayRef, {...dayDoc, entries: {
       [afterDeleteId]: {...entry, minutes: 30, createdAt: serverTimestamp()},
@@ -129,6 +165,22 @@ const initialAccount = (username) => ({
     await assertFails(getDoc(doc(anonymous, dayRef.path)));
     await assertFails(setDoc(dayRef, {...dayDoc, totalMinutes: 1441}));
     await assertFails(setDoc(doc(bob, dayRef.path), {...dayDoc, totalMinutes: 1}));
+    const nextCycle = 'zzzzzzzzzzzzzzzzzzzz';
+    await assertFails(setDoc(account(alice, 'alice'), {currentCycleId: nextCycle}, {merge: true}));
+    await assertSucceeds(setDoc(account(alice, 'alice'), {
+      currentCycleId: nextCycle, cycleStartedAt: serverTimestamp(),
+      character: {generalLevel: 1, class: 'Novato', attributes: initialAttributes},
+    }, {merge: true}));
+    assert.equal((await getDoc(account(alice, 'alice'))).data().username, 'Martin');
+    await assertSucceeds(getDoc(customRef));
+    await assertSucceeds(getDoc(dayRef));
+    await assertFails(setDoc(dayRef, {...dayDoc, entries: {}, totalMinutes: 0,
+      changedId: afterDeleteId, movePeer: null}));
+    const nextRef = doc(alice, `accounts/alice/days/${nextCycle}_${day.toMillis()}`);
+    await assertSucceeds(setDoc(nextRef, {cycleId: nextCycle, day,
+      entries: {[oneId]: {...entry, minutes: 30, createdAt: serverTimestamp()}},
+      totalMinutes: 30, changedId: oneId, movePeer: null}));
+    await assertFails(getDoc(doc(bob, nextRef.path)));
     console.log('Reglas de cuentas, nombres, actividades e historial: OK');
   } finally {
     await environment.cleanup();

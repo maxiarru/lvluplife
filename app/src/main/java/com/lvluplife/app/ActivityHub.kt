@@ -1,12 +1,15 @@
 package com.lvluplife.app
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -24,6 +27,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -32,7 +37,11 @@ import java.time.temporal.TemporalAdjusters
 @Composable
 fun ActivityHub(account: Account, padding: PaddingValues, onSignOut: () -> Unit) {
     val repository = remember { ActivityRepository() }
+    val progressRepository = remember { ProgressRepository() }
     var today by remember { mutableStateOf<LocalDate?>(null) }
+    var progress by remember { mutableStateOf<ProgressResult?>(null) }
+    var confirmReset by remember { mutableStateOf(false) }
+    var viewingClass by remember { mutableStateOf("Novato") }
     var options by remember { mutableStateOf(BasicActivities.all) }
     var tab by remember { mutableStateOf("Registrar") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -57,6 +66,12 @@ fun ActivityHub(account: Account, padding: PaddingValues, onSignOut: () -> Unit)
         }
         onDispose { listener.remove() }
     }
+    DisposableEffect(today) {
+        val listener = today?.let { date -> progressRepository.watch(date) { result ->
+            result.onSuccess { progress = it }.onFailure { error = it.message }
+        } }
+        onDispose { listener?.remove() }
+    }
     fun resetForm() {
         editing = null
         selected = BasicActivities.all.first()
@@ -69,10 +84,15 @@ fun ActivityHub(account: Account, padding: PaddingValues, onSignOut: () -> Unit)
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Hola, ${account.username}", style = MaterialTheme.typography.headlineMedium)
-        Text("${account.character.characterClass} · Nivel ${account.character.generalLevel}")
-        Text(account.character.attributes.entries.joinToString(" · ") { (name, attribute) -> "$name ${attribute.level}" })
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("Registrar", "Historial", "Personalizar").forEach { name ->
+        Text("${progress?.characterClass ?: account.character.characterClass} · Nivel ${progress?.generalLevel ?: account.character.generalLevel}")
+        CharacterArt.forMainScreen(progress?.characterClass ?: account.character.characterClass)?.let { art ->
+            Image(painter = painterResource(art), contentDescription = "Personaje ${progress?.characterClass ?: account.character.characterClass}",
+                modifier = Modifier.fillMaxWidth().height(340.dp), contentScale = ContentScale.Fit)
+        }
+        Text((progress?.attributes ?: account.character.attributes).entries.joinToString(" · ") { (name, attribute) -> "$name ${attribute.level}" })
+        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Registrar", "Historial", "Personalizar", "Progreso", "Clases").forEach { name ->
                 FilterChip(selected = tab == name, onClick = { tab = name; error = null }, label = { Text(name) })
             }
         }
@@ -144,7 +164,46 @@ fun ActivityHub(account: Account, padding: PaddingValues, onSignOut: () -> Unit)
             }, onError = { error = it }, onMessage = { message = it })
             "Personalizar" -> CustomActivityView(repository, busy, options.filter { it.custom },
                 onBusy = { busy = it }, onError = { error = it }, onMessage = { message = it })
+            "Progreso" -> {
+                val current = progress
+                if (current == null) Text("Cargando progreso…") else {
+                    Text("${current.characterClass} · Nivel general ${current.generalLevel} · Etapa ${listOf("I", "II", "III")[ProgressEngine.stage(current.generalLevel) - 1]}",
+                        style = MaterialTheme.typography.titleLarge)
+                    ProgressEngine.attributes.forEach { key ->
+                        val value = current.attributes.getValue(key)
+                        Text("$key · Nivel ${value.level} · ${value.xp}/${if (value.level == 50) 0 else value.level * 30} XP")
+                    }
+                    OutlinedButton(onClick = { confirmReset = true }) { Text("Reiniciar progresión") }
+                }
+            }
+            "Clases" -> {
+                Text("Clases", style = MaterialTheme.typography.titleLarge)
+                Text("${viewingClass} · ${ProgressEngine.classCondition(viewingClass)}")
+                CharacterArt.forMainScreen(viewingClass)?.let { art ->
+                    Image(painter = painterResource(art), contentDescription = "Clase $viewingClass",
+                        modifier = Modifier.fillMaxWidth().height(260.dp), contentScale = ContentScale.Fit)
+                }
+                ProgressEngine.allClasses.forEach { name ->
+                    OutlinedButton(onClick = { viewingClass = name }) { Text(name) }
+                    Text(ProgressEngine.classCondition(name) + " · " + (1..3).joinToString(" · ") { stage ->
+                        val unlocked = (progress?.generalLevel ?: account.character.generalLevel) >= when (stage) { 1 -> 1; 2 -> 15; else -> 35 }
+                        "${listOf("I", "II", "III")[stage - 1]} ${if (unlocked) "desbloqueada" else "bloqueada"}"
+                    })
+                }
+            }
         }
+        if (confirmReset) AlertDialog(onDismissRequest = { confirmReset = false },
+            title = { Text("¿Reiniciar progresión?") },
+            text = { Text("El personaje vuelve a nivel 1. Tu cuenta, nombre, actividades personalizadas e historial se conservan.") },
+            confirmButton = { Button(onClick = {
+                confirmReset = false; busy = true
+                progressRepository.reset { result ->
+                    busy = false
+                    result.onSuccess { message = "Progresión reiniciada" }
+                        .onFailure { error = it.message ?: "No se pudo reiniciar" }
+                }
+            }, enabled = !busy) { Text("Confirmar reinicio") } },
+            dismissButton = { OutlinedButton(onClick = { confirmReset = false }) { Text("Cancelar") } })
         OutlinedButton(onClick = onSignOut) { Text("Cerrar sesión") }
     }
 }
